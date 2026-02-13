@@ -518,7 +518,7 @@ function PropertiesTab({
 /** Clusters tab - groups cells by shared properties */
 function ClustersTab({
   structure,
-  focusCellId,
+  focusCellId: _focusCellId,
   hDimension,
   vDimension,
   onFocusCell,
@@ -529,6 +529,7 @@ function ClustersTab({
   vDimension: string;
   onFocusCell: (id: string) => void;
 }) {
+  void _focusCellId;
   const hMeta = structure.dimensions.get(hDimension);
   const vMeta = structure.dimensions.get(vDimension);
 

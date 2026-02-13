@@ -222,7 +222,7 @@ const characters: SWCharacter[] = [
 export const characterMeta = new Map<string, { bio: string; wookieepediaUrl: string }>();
 for (const c of characters) {
   if (c.bio) {
-    characterMeta.set(c.id, { bio: c.bio, wookieepediaUrl: c.wookieepediaUrl });
+    characterMeta.set(c.id, { bio: c.bio, wookieepediaUrl: c.wookieepediaUrl ?? '' });
   }
 }
 

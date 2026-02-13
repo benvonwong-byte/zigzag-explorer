@@ -45,7 +45,8 @@ export function ZZEdge({
   const ay2 = y2 + offY;
 
   const dx = ax2 - ax1;
-  const dy = ay2 - ay1;
+  const _dy = ay2 - ay1;
+  void _dy;
   const cx1 = ax1 + dx * 0.4;
   const cy1 = ay1;
   const cx2 = ax2 - dx * 0.4;

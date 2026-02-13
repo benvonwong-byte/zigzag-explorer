@@ -1,5 +1,5 @@
 import * as d3 from 'd3';
-import type { ZZStructure, CellData } from './ZZStructure';
+import type { ZZStructure } from './ZZStructure';
 
 // ---------------------------------------------------------------------------
 // Property metadata — inferred from data

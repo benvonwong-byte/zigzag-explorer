@@ -15,11 +15,9 @@ import type {
   EdgeAnimationConfig,
   GroupingConfig,
   DashPattern,
-  FlowMarkerConfig,
 } from '../model/VisualMapping';
 import {
   DEFAULT_VISUAL_ENCODING,
-  DEFAULT_FLOW_MARKER,
   inferPropertyMeta,
   categoricalColor,
   numericColor,
