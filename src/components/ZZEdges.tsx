@@ -1,5 +1,7 @@
 import { motion } from 'framer-motion';
 import { GAP_X, GAP_Y } from './ZZCell';
+import type { ResolvedEdgeVisuals, FlowMarkerConfig } from '../model/VisualMapping';
+import { DEFAULT_FLOW_MARKER } from '../model/VisualMapping';
 
 interface EdgeProps {
   fromX: number;
@@ -8,40 +10,172 @@ interface EdgeProps {
   toY: number;
   color: string;
   isHighlighted: boolean;
+  edgeKey?: string;
+  visualEncoding?: ResolvedEdgeVisuals;
+  isOverlay?: boolean;
+  overlayIndex?: number;
 }
 
-export function ZZEdge({ fromX, fromY, toX, toY, color, isHighlighted }: EdgeProps) {
+export function ZZEdge({
+  fromX, fromY, toX, toY, color, isHighlighted, edgeKey, visualEncoding,
+  isOverlay, overlayIndex = 0,
+}: EdgeProps) {
   const x1 = fromX * GAP_X;
   const y1 = fromY * GAP_Y;
   const x2 = toX * GAP_X;
   const y2 = toY * GAP_Y;
 
-  // Cubic bezier control points for smooth curves
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const cx1 = x1 + dx * 0.4;
-  const cy1 = y1;
-  const cx2 = x2 - dx * 0.4;
-  const cy2 = y2;
+  // Perpendicular offset for overlay edges to avoid overlap
+  let offX = 0;
+  let offY = 0;
+  if (isOverlay) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const perpX = -dy / len;
+    const perpY = dx / len;
+    const offset = (overlayIndex + 1) * 4;
+    offX = perpX * offset;
+    offY = perpY * offset;
+  }
 
-  const d = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+  const ax1 = x1 + offX;
+  const ay1 = y1 + offY;
+  const ax2 = x2 + offX;
+  const ay2 = y2 + offY;
+
+  const dx = ax2 - ax1;
+  const dy = ay2 - ay1;
+  const cx1 = ax1 + dx * 0.4;
+  const cy1 = ay1;
+  const cx2 = ax2 - dx * 0.4;
+  const cy2 = ay2;
+
+  const d = `M ${ax1} ${ay1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${ax2} ${ay2}`;
+
+  const defaultStrokeWidth = isOverlay ? 0.8 : (isHighlighted ? 2 : 1);
+  const strokeWidth = visualEncoding?.strokeWidth ?? defaultStrokeWidth;
+  const dashArray = visualEncoding?.dashArray;
+  const pathId = edgeKey ? `epath-${edgeKey}` : undefined;
+
+  const baseOpacity = isOverlay ? 0.12 : 0.2;
+  const highlightOpacity = isOverlay ? 0.45 : 0.7;
+  const opacity = isHighlighted ? highlightOpacity : baseOpacity;
+
+  const markerConfig = visualEncoding?.marker ?? DEFAULT_FLOW_MARKER;
 
   return (
-    <motion.path
-      d={d}
-      fill="none"
-      stroke={color}
-      strokeWidth={isHighlighted ? 2 : 1}
-      opacity={isHighlighted ? 0.7 : 0.2}
-      initial={{ pathLength: 0, opacity: 0 }}
-      animate={{
-        pathLength: 1,
-        opacity: isHighlighted ? 0.7 : 0.2,
-      }}
-      transition={{ duration: 0.4, ease: 'easeOut' }}
-    />
+    <g>
+      <motion.path
+        d={d}
+        fill="none"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeDasharray={dashArray}
+        opacity={opacity}
+        initial={{ pathLength: 0, opacity: 0 }}
+        animate={{
+          pathLength: 1,
+          opacity,
+        }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+      />
+      {visualEncoding?.animate && pathId && (
+        <>
+          <path id={pathId} d={d} fill="none" stroke="none" />
+          <FlowMarker
+            config={markerConfig}
+            color={color}
+            pathId={pathId}
+            speed={visualEncoding.animateSpeed ?? 30}
+          />
+        </>
+      )}
+    </g>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Flow Marker — configurable shape or emoji that travels along the edge path
+// ---------------------------------------------------------------------------
+
+function starPoints(r: number): string {
+  const pts: string[] = [];
+  for (let i = 0; i < 5; i++) {
+    const outerAngle = (Math.PI / 2) + (i * 2 * Math.PI / 5);
+    const innerAngle = outerAngle + Math.PI / 5;
+    pts.push(`${Math.cos(outerAngle) * r},${-Math.sin(outerAngle) * r}`);
+    pts.push(`${Math.cos(innerAngle) * r * 0.4},${-Math.sin(innerAngle) * r * 0.4}`);
+  }
+  return pts.join(' ');
+}
+
+function FlowMarker({ config, color, pathId, speed }: {
+  config: FlowMarkerConfig;
+  color: string;
+  pathId: string;
+  speed: number;
+}) {
+  const dur = `${Math.max(1, 100 / speed)}s`;
+  const s = config.size;
+
+  const renderMarkerShape = () => {
+    switch (config.type) {
+      case 'triangle':
+        return (
+          <polygon
+            points={`0,${-s} ${s * 0.87},${s * 0.5} ${-s * 0.87},${s * 0.5}`}
+            fill={color}
+            opacity={0.8}
+          />
+        );
+      case 'diamond':
+        return (
+          <polygon
+            points={`0,${-s} ${s},0 0,${s} ${-s},0`}
+            fill={color}
+            opacity={0.8}
+          />
+        );
+      case 'square':
+        return <rect x={-s} y={-s} width={s * 2} height={s * 2} fill={color} opacity={0.8} />;
+      case 'star':
+        return <polygon points={starPoints(s)} fill={color} opacity={0.8} />;
+      case 'emoji':
+        if (config.emojiUrl) {
+          return (
+            <image
+              href={config.emojiUrl}
+              x={-s}
+              y={-s}
+              width={s * 2}
+              height={s * 2}
+            />
+          );
+        }
+        return <circle r={s} fill={color} opacity={0.8} />;
+      case 'circle':
+      default:
+        return <circle r={s} fill={color} opacity={0.8} />;
+    }
+  };
+
+  return (
+    <g>
+      {renderMarkerShape()}
+      <animateMotion
+        dur={dur}
+        repeatCount="indefinite"
+      >
+        <mpath href={`#${pathId}`} />
+      </animateMotion>
+    </g>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Navigation Arrow
+// ---------------------------------------------------------------------------
 
 interface ArrowProps {
   x: number;

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ZZStructure } from '../model/ZZStructure';
+import type { ZZStructure } from '../model/ZZStructure';
+import { characterMeta } from '../data/starwars';
 
 interface Props {
   structure: ZZStructure;
@@ -8,13 +9,17 @@ interface Props {
   hDimension: string;
   vDimension: string;
   selectedCells: Set<string>;
+  overlayDimensions: Set<string>;
   onFocusCell: (id: string) => void;
   onSelectCell: (id: string) => void;
   onHighlightRank: (dim: string | null) => void;
   highlightedRank: string | null;
+  onSetHDimension: (dim: string) => void;
+  onSetVDimension: (dim: string) => void;
+  onToggleOverlay: (dim: string) => void;
 }
 
-type TabId = 'ranks' | 'properties' | 'clusters' | 'patterns';
+type TabId = 'ranks' | 'connections' | 'properties' | 'clusters' | 'patterns';
 
 export function DataPanel({
   structure,
@@ -22,10 +27,14 @@ export function DataPanel({
   hDimension,
   vDimension,
   selectedCells,
+  overlayDimensions,
   onFocusCell,
   onSelectCell,
   onHighlightRank,
   highlightedRank,
+  onSetHDimension,
+  onSetVDimension,
+  onToggleOverlay,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('ranks');
   const [expandedDim, setExpandedDim] = useState<string | null>(null);
@@ -40,22 +49,44 @@ export function DataPanel({
       )
     : [];
 
+  const meta = characterMeta?.get(focusCellId);
+
   const tabs: { id: TabId; label: string }[] = [
     { id: 'ranks', label: 'Ranks' },
-    { id: 'properties', label: 'Properties' },
+    { id: 'connections', label: 'Links' },
+    { id: 'properties', label: 'Props' },
     { id: 'clusters', label: 'Clusters' },
     { id: 'patterns', label: 'Patterns' },
   ];
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-secondary)] border-l border-[var(--border-color)]">
-      {/* Header */}
+      {/* Header with bio */}
       <div className="px-4 py-3 border-b border-[var(--border-color)]">
         <div className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">
           Data Inspector
         </div>
         {focusCell && (
-          <div className="text-sm font-semibold">{focusCell.data.label}</div>
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold">{focusCell.data.label}</span>
+              {meta?.wookieepediaUrl && (
+                <a
+                  href={meta.wookieepediaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] text-[var(--accent-cyan)] hover:underline shrink-0"
+                >
+                  Wookieepedia
+                </a>
+              )}
+            </div>
+            {meta?.bio && (
+              <div className="text-[10px] text-[var(--text-secondary)] mt-1 leading-relaxed">
+                {meta.bio}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -95,6 +126,20 @@ export function DataPanel({
               selectedCells={selectedCells}
             />
           )}
+          {activeTab === 'connections' && (
+            <ConnectionsTab
+              key="connections"
+              structure={structure}
+              focusCellId={focusCellId}
+              hDimension={hDimension}
+              vDimension={vDimension}
+              overlayDimensions={overlayDimensions}
+              onFocusCell={onFocusCell}
+              onSetHDimension={onSetHDimension}
+              onSetVDimension={onSetVDimension}
+              onToggleOverlay={onToggleOverlay}
+            />
+          )}
           {activeTab === 'properties' && (
             <PropertiesTab
               key="properties"
@@ -118,6 +163,8 @@ export function DataPanel({
               key="patterns"
               structure={structure}
               focusCellId={focusCellId}
+              hDimension={hDimension}
+              vDimension={vDimension}
               onFocusCell={onFocusCell}
             />
           )}
@@ -234,7 +281,7 @@ function RanksTab({
                                 )}
                               </td>
                               <td className="py-1 px-2 text-[var(--text-muted)]">
-                                {cell.data.properties.faction || cell.data.properties.species}
+                                {String(cell.data.properties.faction ?? cell.data.properties.species ?? '')}
                               </td>
                             </tr>
                           );
@@ -245,6 +292,129 @@ function RanksTab({
                 </motion.div>
               )}
             </AnimatePresence>
+          </div>
+        );
+      })}
+    </motion.div>
+  );
+}
+
+/** Connections tab - shows hidden dimension relationships */
+function ConnectionsTab({
+  structure,
+  focusCellId,
+  hDimension,
+  vDimension,
+  overlayDimensions,
+  onFocusCell,
+  onSetHDimension,
+  onSetVDimension,
+  onToggleOverlay,
+}: {
+  structure: ZZStructure;
+  focusCellId: string;
+  hDimension: string;
+  vDimension: string;
+  overlayDimensions: Set<string>;
+  onFocusCell: (id: string) => void;
+  onSetHDimension: (dim: string) => void;
+  onSetVDimension: (dim: string) => void;
+  onToggleOverlay: (dim: string) => void;
+}) {
+  const focusCell = structure.cells.get(focusCellId);
+  const allDims = Array.from(structure.dimensions.keys());
+
+  // All dimensions excluding current H and V
+  const hiddenDims = allDims.filter(d => d !== hDimension && d !== vDimension);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="p-3"
+    >
+      <div className="text-[10px] text-[var(--text-muted)] mb-2">
+        Hidden dimension connections (not on H/V axes)
+      </div>
+      {focusCell && hiddenDims.map(dim => {
+        const meta = structure.dimensions.get(dim);
+        const rank = structure.getRank(focusCellId, dim);
+        const focusIndex = rank.indexOf(focusCellId);
+        const negNeighbor = focusIndex > 0 ? rank[focusIndex - 1] : null;
+        const posNeighbor = focusIndex < rank.length - 1 ? rank[focusIndex + 1] : null;
+        const isOverlay = overlayDimensions.has(dim);
+
+        return (
+          <div
+            key={dim}
+            className="mb-2 p-2 rounded border bg-[var(--bg-tertiary)]"
+            style={{ borderColor: isOverlay ? meta?.color : 'var(--border-color)' }}
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-medium" style={{ color: meta?.color }}>
+                {dim.replace('d.', '')}
+              </span>
+              <span className="text-[9px] text-[var(--text-muted)]">
+                #{focusIndex + 1} of {rank.length}
+              </span>
+            </div>
+
+            {/* Neighbor chain */}
+            <div className="flex items-center gap-1 mb-2 text-[10px]">
+              {negNeighbor ? (
+                <button
+                  onClick={() => onFocusCell(negNeighbor)}
+                  className="px-1.5 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--accent-cyan)] transition-all cursor-pointer truncate max-w-[80px]"
+                >
+                  {structure.cells.get(negNeighbor)?.data.label}
+                </button>
+              ) : (
+                <span className="text-[var(--text-muted)] px-1">...</span>
+              )}
+              <span style={{ color: meta?.color }}>{'<'}</span>
+              <span className="px-1.5 py-0.5 rounded border font-medium" style={{ borderColor: meta?.color, color: meta?.color }}>
+                {focusCell.data.label.length > 12 ? focusCell.data.label.slice(0, 11) + '...' : focusCell.data.label}
+              </span>
+              <span style={{ color: meta?.color }}>{'>'}</span>
+              {posNeighbor ? (
+                <button
+                  onClick={() => onFocusCell(posNeighbor)}
+                  className="px-1.5 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--accent-cyan)] transition-all cursor-pointer truncate max-w-[80px]"
+                >
+                  {structure.cells.get(posNeighbor)?.data.label}
+                </button>
+              ) : (
+                <span className="text-[var(--text-muted)] px-1">...</span>
+              )}
+            </div>
+
+            {/* Quick actions */}
+            <div className="flex gap-1">
+              <button
+                onClick={() => onSetHDimension(dim)}
+                className="text-[9px] px-1.5 py-0.5 rounded border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--text-secondary)] transition-all cursor-pointer"
+              >
+                Use as H
+              </button>
+              <button
+                onClick={() => onSetVDimension(dim)}
+                className="text-[9px] px-1.5 py-0.5 rounded border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--text-secondary)] transition-all cursor-pointer"
+              >
+                Use as V
+              </button>
+              <button
+                onClick={() => onToggleOverlay(dim)}
+                className="text-[9px] px-1.5 py-0.5 rounded border transition-all cursor-pointer"
+                style={{
+                  borderColor: isOverlay ? meta?.color : 'var(--border-color)',
+                  color: isOverlay ? meta?.color : 'var(--text-muted)',
+                  background: isOverlay ? `${meta?.color}12` : 'transparent',
+                }}
+              >
+                {isOverlay ? 'Hide overlay' : 'Show overlay'}
+              </button>
+            </div>
           </div>
         );
       })}
@@ -313,7 +483,10 @@ function PropertiesTab({
           </thead>
           <tbody>
             {allKeys.map(key => {
-              const values = cellIds.map(id => structure.cells.get(id)?.data.properties[key] || '—');
+              const values = cellIds.map(id => {
+                const val = structure.cells.get(id)?.data.properties[key];
+                return val !== null && val !== undefined ? String(val) : '—';
+              });
               const allSame = values.every(v => v === values[0]);
               return (
                 <tr key={key}>
@@ -359,43 +532,17 @@ function ClustersTab({
   const hMeta = structure.dimensions.get(hDimension);
   const vMeta = structure.dimensions.get(vDimension);
 
-  // Build a cross-tabulation of hDimension ranks x vDimension ranks
   const crossTab = useMemo(() => {
-    // Get all ranks for both dimensions
     const allCells = structure.getAllCells();
-
-    // Group by which rank they belong to in each dimension
-    const hGroups = new Map<string, Set<string>>();
-    const vGroups = new Map<string, Set<string>>();
-
-    for (const cell of allCells) {
-      const hRank = structure.getRank(cell.id, hDimension);
-      const vRank = structure.getRank(cell.id, vDimension);
-
-      if (hRank.length > 0) {
-        const hHead = structure.cells.get(hRank[0])?.data.label || hRank[0];
-        if (!hGroups.has(hHead)) hGroups.set(hHead, new Set());
-        hGroups.get(hHead)!.add(cell.id);
-      }
-      if (vRank.length > 0) {
-        const vHead = structure.cells.get(vRank[0])?.data.label || vRank[0];
-        if (!vGroups.has(vHead)) vGroups.set(vHead, new Set());
-        vGroups.get(vHead)!.add(cell.id);
-      }
-    }
-
-    // Determine the property used by each dimension
     const hProp = hDimension.replace('d.', '');
     const vProp = vDimension.replace('d.', '');
-
-    // Build actual cross-tab using properties
     const hValues = new Set<string>();
     const vValues = new Set<string>();
     const countMap = new Map<string, { count: number; cellIds: string[] }>();
 
     for (const cell of allCells) {
-      const hVal = cell.data.properties[hProp] || 'Unknown';
-      const vVal = cell.data.properties[vProp] || 'Unknown';
+      const hVal = String(cell.data.properties[hProp] ?? 'Unknown');
+      const vVal = String(cell.data.properties[vProp] ?? 'Unknown');
       hValues.add(hVal);
       vValues.add(vVal);
       const key = `${hVal}|${vVal}`;
@@ -414,7 +561,6 @@ function ClustersTab({
     };
   }, [structure, hDimension, vDimension]);
 
-  // Limit the display to top groups
   const maxH = 8;
   const maxV = 10;
   const displayH = crossTab.hValues.slice(0, maxH);
@@ -430,7 +576,7 @@ function ClustersTab({
       <div className="text-[10px] text-[var(--text-muted)] mb-2">
         Cross-tabulation:{' '}
         <span style={{ color: hMeta?.color }}>{crossTab.hProp}</span>
-        {' × '}
+        {' x '}
         <span style={{ color: vMeta?.color }}>{crossTab.vProp}</span>
       </div>
       <div className="overflow-x-auto">
@@ -438,7 +584,7 @@ function ClustersTab({
           <thead>
             <tr>
               <th className="py-1 px-1.5 text-[var(--text-muted)] border-b border-r border-[var(--border-color)]">
-                {crossTab.vProp} ↓ / {crossTab.hProp} →
+                {crossTab.vProp} / {crossTab.hProp}
               </th>
               {displayH.map(h => (
                 <th
@@ -447,7 +593,7 @@ function ClustersTab({
                   style={{ color: hMeta?.color }}
                   title={h}
                 >
-                  {h.length > 8 ? h.slice(0, 7) + '…' : h}
+                  {h.length > 8 ? h.slice(0, 7) + '...' : h}
                 </th>
               ))}
             </tr>
@@ -460,7 +606,7 @@ function ClustersTab({
                   style={{ color: vMeta?.color }}
                   title={v}
                 >
-                  {v.length > 10 ? v.slice(0, 9) + '…' : v}
+                  {v.length > 10 ? v.slice(0, 9) + '...' : v}
                 </td>
                 {displayH.map(h => {
                   const entry = crossTab.countMap.get(`${h}|${v}`);
@@ -482,7 +628,7 @@ function ClustersTab({
                       }}
                       title={entry?.cellIds.map(id => structure.cells.get(id)?.data.label).join(', ')}
                     >
-                      {count || '·'}
+                      {count || '.'}
                     </td>
                   );
                 })}
@@ -499,10 +645,14 @@ function ClustersTab({
 function PatternsTab({
   structure,
   focusCellId,
+  hDimension,
+  vDimension,
   onFocusCell,
 }: {
   structure: ZZStructure;
   focusCellId: string;
+  hDimension: string;
+  vDimension: string;
   onFocusCell: (id: string) => void;
 }) {
   const patterns = useMemo(() => {
@@ -532,7 +682,7 @@ function PatternsTab({
       });
     }
 
-    // 2. Find cells that share the most dimensions
+    // 2. Find cells that share the most ranks (structural siblings)
     const allCells = structure.getAllCells();
     let maxShared = 0;
     let mostSimilar: string[] = [];
@@ -544,7 +694,6 @@ function PatternsTab({
         const myRank = structure.getRank(focusCellId, dim);
         const theirRank = structure.getRank(other.id, dim);
         if (myRank.length > 1 && theirRank.length > 1) {
-          // Check if they share a rank
           const myRankHead = myRank[0];
           const theirRankHead = theirRank[0];
           if (myRankHead === theirRankHead) shared++;
@@ -572,7 +721,7 @@ function PatternsTab({
       });
     }
 
-    // 3. Rank sizes
+    // 3. Rank sizes — notable small or large ranks
     for (const dim of dims) {
       const rank = structure.getRank(focusCellId, dim);
       const meta = structure.dimensions.get(dim);
@@ -580,7 +729,7 @@ function PatternsTab({
         results.push({
           type: 'small-rank',
           title: `Small ${dim.replace('d.', '')} Rank`,
-          description: `Only ${rank.length} cell${rank.length === 1 ? '' : 's'} in this rank — unique grouping`,
+          description: `Only ${rank.length} cell${rank.length === 1 ? '' : 's'} in this rank`,
           color: meta?.color || '#888',
           relatedCells: rank.filter(id => id !== focusCellId),
         });
@@ -595,14 +744,73 @@ function PatternsTab({
       }
     }
 
-    // 4. Unique property combinations
+    // 4. Recommended groupings — categorical properties where focus has a rare value
     const props = cell.data.properties;
+    const categoricalKeys = Object.keys(props).filter(k => typeof props[k] === 'string');
+    for (const key of categoricalKeys) {
+      const val = String(props[key]);
+      let count = 0;
+      for (const other of allCells) {
+        if (String(other.data.properties[key]) === val) count++;
+      }
+      const percentage = count / allCells.length;
+      if (percentage < 0.1 && count > 1) {
+        results.push({
+          type: 'rare-group',
+          title: `Rare ${key}: "${val}"`,
+          description: `Only ${count} of ${allCells.length} cells (${(percentage * 100).toFixed(0)}%) — try grouping by ${key}`,
+          color: 'var(--accent-purple)',
+          relatedCells: [],
+        });
+      }
+    }
+
+    // 5. Outlier numeric properties vs rankmates
+    const numericKeys = Object.keys(props).filter(k => typeof props[k] === 'number');
+    const activeDims = [hDimension, vDimension];
+    for (const dim of activeDims) {
+      const rank = structure.getRank(focusCellId, dim);
+      if (rank.length < 3) continue;
+      const dimMeta = structure.dimensions.get(dim);
+
+      for (const key of numericKeys) {
+        const myVal = props[key] as number;
+        const rankVals = rank
+          .map(id => structure.cells.get(id)?.data.properties[key])
+          .filter((v): v is number => typeof v === 'number');
+        if (rankVals.length < 3) continue;
+
+        const avg = rankVals.reduce((a, b) => a + b, 0) / rankVals.length;
+        const isHighest = myVal >= Math.max(...rankVals);
+        const isLowest = myVal <= Math.min(...rankVals);
+
+        if (isHighest && myVal > avg * 1.5) {
+          results.push({
+            type: 'outlier-high',
+            title: `Highest ${key} in ${dim.replace('d.', '')} rank`,
+            description: `${myVal} vs avg ${avg.toFixed(1)}`,
+            color: dimMeta?.color || '#888',
+            relatedCells: [],
+          });
+        } else if (isLowest && myVal < avg * 0.5) {
+          results.push({
+            type: 'outlier-low',
+            title: `Lowest ${key} in ${dim.replace('d.', '')} rank`,
+            description: `${myVal} vs avg ${avg.toFixed(1)}`,
+            color: dimMeta?.color || '#888',
+            relatedCells: [],
+          });
+        }
+      }
+    }
+
+    // 6. Unique property combinations
     let uniqueCount = 0;
     for (const other of allCells) {
       if (other.id === focusCellId) continue;
       let allMatch = true;
       for (const [k, v] of Object.entries(props)) {
-        if (other.data.properties[k] !== v) {
+        if (String(other.data.properties[k] ?? '') !== String(v ?? '')) {
           allMatch = false;
           break;
         }
@@ -620,7 +828,7 @@ function PatternsTab({
     }
 
     return results;
-  }, [structure, focusCellId]);
+  }, [structure, focusCellId, hDimension, vDimension]);
 
   return (
     <motion.div

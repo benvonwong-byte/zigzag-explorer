@@ -7,6 +7,7 @@ export interface ZZNavigationState {
   vDimension: string; // vertical axis dimension
   selectedCells: Set<string>;
   highlightedRank: string | null; // dimension name of highlighted rank
+  overlayDimensions: Set<string>; // additional dimensions whose edges are shown
 }
 
 export function useZZNavigation(structure: ZZStructure) {
@@ -21,6 +22,7 @@ export function useZZNavigation(structure: ZZStructure) {
     vDimension: allDimensions[1] || '',
     selectedCells: new Set<string>(),
     highlightedRank: null,
+    overlayDimensions: new Set<string>(),
   });
 
   const setFocus = useCallback((cellId: string) => {
@@ -88,6 +90,18 @@ export function useZZNavigation(structure: ZZStructure) {
     setState(prev => ({ ...prev, highlightedRank: dim }));
   }, []);
 
+  const toggleOverlayDimension = useCallback((dim: string) => {
+    setState(prev => {
+      const next = new Set(prev.overlayDimensions);
+      if (next.has(dim)) {
+        next.delete(dim);
+      } else {
+        next.add(dim);
+      }
+      return { ...prev, overlayDimensions: next };
+    });
+  }, []);
+
   // Get the 2D neighborhood grid for the current focus
   const getViewGrid = useCallback(
     (radius: number = 3) => {
@@ -140,6 +154,7 @@ export function useZZNavigation(structure: ZZStructure) {
     toggleSelected,
     clearSelected,
     setHighlightedRank,
+    toggleOverlayDimension,
     getViewGrid,
   };
 }

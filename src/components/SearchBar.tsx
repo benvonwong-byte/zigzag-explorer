@@ -21,7 +21,7 @@ export function SearchBar({ structure, onSelectCell }: Props) {
         cell =>
           cell.data.label.toLowerCase().includes(q) ||
           Object.values(cell.data.properties).some(v =>
-            v.toLowerCase().includes(q)
+            String(v ?? '').toLowerCase().includes(q)
           )
       )
       .slice(0, 12);

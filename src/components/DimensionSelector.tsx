@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { DimensionMeta } from '../model/ZZStructure';
+import type { DimensionMeta } from '../model/ZZStructure';
 
 interface Props {
   dimensions: DimensionMeta[];

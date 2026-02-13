@@ -11,7 +11,7 @@
 export interface CellData {
   id: string;
   label: string;
-  properties: Record<string, string>;
+  properties: Record<string, string | number | null>;
 }
 
 export interface ZZCell {
