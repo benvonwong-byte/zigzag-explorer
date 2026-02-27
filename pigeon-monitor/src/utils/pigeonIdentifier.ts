@@ -19,41 +19,96 @@ function getNextName(): string {
     : name;
 }
 
-/**
- * Extract a simplified color histogram from a cropped bird image.
- * We divide the image into a 3x3 grid and compute average RGB per cell,
- * yielding a 27-dimensional feature vector. This is crude but enough
- * to distinguish pigeons with noticeably different plumage.
- */
-export function extractColorSignature(canvas: HTMLCanvasElement): number[] {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return new Array(27).fill(128);
-
-  const w = canvas.width;
-  const h = canvas.height;
-  const cellW = Math.floor(w / 3);
-  const cellH = Math.floor(h / 3);
-  const signature: number[] = [];
-
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 3; col++) {
-      const data = ctx.getImageData(col * cellW, row * cellH, cellW, cellH).data;
-      let r = 0, g = 0, b = 0;
-      const pixelCount = data.length / 4;
-      for (let i = 0; i < data.length; i += 4) {
-        r += data[i];
-        g += data[i + 1];
-        b += data[i + 2];
-      }
-      signature.push(r / pixelCount, g / pixelCount, b / pixelCount);
-    }
-  }
-  return signature;
+export function setNameIndex(index: number) {
+  nameIndex = index;
 }
 
 /**
- * Compare two color signatures using cosine similarity.
+ * Convert RGB to HSV. Returns [h, s, v] where h is 0-360, s and v are 0-1.
  */
+function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+
+  const s = max === 0 ? 0 : d / max;
+  return [h, s, max];
+}
+
+/**
+ * Extract a rich feature vector from a cropped bird image.
+ * Uses a 5x5 spatial grid with RGB means, HSV hue/saturation, and
+ * per-cell color variance (texture indicator).
+ * Dimensions: 5x5x3 (RGB) + 5x5x2 (HS) + 5x5 (variance) = 150
+ */
+export function extractColorSignature(canvas: HTMLCanvasElement): number[] {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return new Array(150).fill(0);
+
+  const w = canvas.width;
+  const h = canvas.height;
+  const gridSize = 5;
+  const cellW = Math.floor(w / gridSize);
+  const cellH = Math.floor(h / gridSize);
+
+  if (cellW < 1 || cellH < 1) return new Array(150).fill(0);
+
+  const rgbFeatures: number[] = [];
+  const hsvFeatures: number[] = [];
+  const varianceFeatures: number[] = [];
+
+  for (let row = 0; row < gridSize; row++) {
+    for (let col = 0; col < gridSize; col++) {
+      const data = ctx.getImageData(col * cellW, row * cellH, cellW, cellH).data;
+      const pixelCount = data.length / 4;
+
+      let rSum = 0, gSum = 0, bSum = 0;
+      let hSum = 0, sSum = 0;
+
+      for (let i = 0; i < data.length; i += 4) {
+        rSum += data[i];
+        gSum += data[i + 1];
+        bSum += data[i + 2];
+        const [hue, sat] = rgbToHsv(data[i], data[i + 1], data[i + 2]);
+        hSum += hue;
+        sSum += sat;
+      }
+
+      const rMean = rSum / pixelCount;
+      const gMean = gSum / pixelCount;
+      const bMean = bSum / pixelCount;
+
+      // Texture: color variance (sample every 4th pixel for speed)
+      let variance = 0;
+      let sampleCount = 0;
+      for (let i = 0; i < data.length; i += 16) {
+        const dr = data[i] - rMean;
+        const dg = data[i + 1] - gMean;
+        const db = data[i + 2] - bMean;
+        variance += dr * dr + dg * dg + db * db;
+        sampleCount++;
+      }
+      variance /= Math.max(sampleCount, 1);
+
+      rgbFeatures.push(rMean / 255, gMean / 255, bMean / 255);
+      hsvFeatures.push(hSum / pixelCount / 360, sSum / pixelCount);
+      varianceFeatures.push(Math.min(variance / 5000, 1));
+    }
+  }
+
+  return [...rgbFeatures, ...hsvFeatures, ...varianceFeatures];
+}
+
 function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) return 0;
   let dot = 0, magA = 0, magB = 0;
@@ -66,10 +121,11 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(magA) * Math.sqrt(magB));
 }
 
-const SIMILARITY_THRESHOLD = 0.985;
+// Richer 150-dim features are more discriminative; lower threshold suffices
+const SIMILARITY_THRESHOLD = 0.94;
 
 /**
- * Try to match a detection's color signature against known pigeons.
+ * Try to match a detection's feature vector against known pigeons.
  * Returns the matched pigeon ID or null if it's a new individual.
  */
 export function matchPigeon(
@@ -81,8 +137,10 @@ export function matchPigeon(
   let bestScore = 0;
 
   for (const [id, profile] of registry) {
+    // Skip profiles with incompatible signature length (legacy 27-dim data)
+    if (signature.length !== profile.colorSignature.length) continue;
+
     const colorScore = cosineSimilarity(signature, profile.colorSignature);
-    // Also factor in size similarity (pigeons of similar size score higher)
     const sizeRatio = Math.min(size, profile.avgSize) / Math.max(size, profile.avgSize);
     const combined = colorScore * 0.85 + sizeRatio * 0.15;
 
@@ -95,9 +153,6 @@ export function matchPigeon(
   return bestScore >= SIMILARITY_THRESHOLD ? bestMatch : null;
 }
 
-/**
- * Create a new pigeon profile.
- */
 export function createPigeonProfile(
   signature: number[],
   size: number,
@@ -116,19 +171,15 @@ export function createPigeonProfile(
   };
 }
 
-/**
- * Update a pigeon profile with a new sighting.
- */
 export function updatePigeonProfile(
   profile: PigeonProfile,
   signature: number[],
   size: number,
   snapshot: string
 ): PigeonProfile {
-  // Running average of the color signature
   const blendFactor = 0.3;
   const updatedSignature = profile.colorSignature.map(
-    (v, i) => v * (1 - blendFactor) + signature[i] * blendFactor
+    (v, i) => v * (1 - blendFactor) + (signature[i] ?? v) * blendFactor
   );
 
   const snapshots = [...profile.snapshots, snapshot].slice(-5);
