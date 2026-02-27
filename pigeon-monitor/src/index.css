@@ -1,1 +1,32 @@
 @import "tailwindcss";
+
+/* PWA safe area support for iPhone notch/Dynamic Island */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+/* Prevent overscroll bounce on iOS */
+html, body {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent text selection on tap in app mode */
+body.pwa-standalone {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Keep camera feed awake: prevent iOS from pausing video */
+video {
+  -webkit-playsinline: true;
+}
+
+/* Smoother scrolling in panels */
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
