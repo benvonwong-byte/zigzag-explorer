@@ -53,6 +53,7 @@ export interface CameraConfig {
   type: 'webcam' | 'ip-camera' | 'image-url';
   url?: string;
   refreshInterval?: number; // ms, for IP camera snapshots
+  captureInterval?: number; // ms, how often to run detection (default 5000)
 }
 
 export interface AppStats {

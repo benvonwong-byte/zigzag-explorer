@@ -14,7 +14,7 @@ const VISIT_GAP_MS = 5 * 60 * 1000;
 
 type CocoSsdModel = {
   detect: (
-    input: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement
+    input: HTMLCanvasElement
   ) => Promise<Array<{ bbox: [number, number, number, number]; class: string; score: number }>>;
 };
 
@@ -134,7 +134,7 @@ export function useDetection() {
 
   const detect = useCallback(
     async (
-      source: HTMLVideoElement | HTMLCanvasElement
+      source: HTMLCanvasElement
     ): Promise<Detection[]> => {
       if (!modelRef.current) return [];
 
@@ -144,14 +144,16 @@ export function useDetection() {
           (p) => p.class === 'bird' && p.score > 0.4
         );
 
-        const scratchCanvas = document.createElement('canvas');
-        const scratchCtx = scratchCanvas.getContext('2d');
-        if (!scratchCtx) return [];
+        // Feature extraction canvas — sized for the 5x5 grid analysis
+        const featureCanvas = document.createElement('canvas');
+        const featureCtx = featureCanvas.getContext('2d');
+        // Thumbnail canvas — small compressed snapshot for storage
+        const thumbCanvas = document.createElement('canvas');
+        const thumbCtx = thumbCanvas.getContext('2d');
+        if (!featureCtx || !thumbCtx) return [];
 
-        const sourceWidth =
-          source instanceof HTMLVideoElement ? source.videoWidth : source.width;
-        const sourceHeight =
-          source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+        const sourceWidth = source.width;
+        const sourceHeight = source.height;
 
         const newDetections: Detection[] = [];
         const currentRegistry = new Map(registryRef.current);
@@ -165,16 +167,23 @@ export function useDetection() {
         for (const pred of birdDetections) {
           const [x, y, w, h] = pred.bbox;
 
-          scratchCanvas.width = Math.max(1, Math.round(w));
-          scratchCanvas.height = Math.max(1, Math.round(h));
-          scratchCtx.drawImage(
-            source,
-            x, y, w, h,
-            0, 0, scratchCanvas.width, scratchCanvas.height
-          );
+          // Feature canvas: 100x100 is plenty for the 5x5 grid (20px per cell)
+          const fSize = 100;
+          featureCanvas.width = fSize;
+          featureCanvas.height = fSize;
+          featureCtx.drawImage(source, x, y, w, h, 0, 0, fSize, fSize);
 
-          const snapshot = scratchCanvas.toDataURL('image/jpeg', 0.7);
-          const signature = extractColorSignature(scratchCanvas);
+          // Thumbnail: max 120px on longest side, JPEG quality 0.4 (~3KB)
+          const maxThumb = 120;
+          const thumbScale = Math.min(maxThumb / w, maxThumb / h, 1);
+          const tw = Math.max(1, Math.round(w * thumbScale));
+          const th = Math.max(1, Math.round(h * thumbScale));
+          thumbCanvas.width = tw;
+          thumbCanvas.height = th;
+          thumbCtx.drawImage(source, x, y, w, h, 0, 0, tw, th);
+
+          const snapshot = thumbCanvas.toDataURL('image/jpeg', 0.4);
+          const signature = extractColorSignature(featureCanvas);
           const size = (w / sourceWidth) * (h / sourceHeight);
 
           const matchedId = matchPigeon(signature, size, currentRegistry);

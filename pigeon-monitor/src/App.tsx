@@ -58,7 +58,7 @@ export default function App() {
   );
 
   const handleFrame = useCallback(
-    (source: HTMLVideoElement | HTMLCanvasElement) => {
+    (source: HTMLCanvasElement) => {
       if (modelReady) {
         detect(source);
       }
